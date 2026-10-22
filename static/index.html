@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>ATC Live</title>
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="map"></div>
+
+<header id="top">
+  <div id="brand">ATC<b>LIVE</b></div>
+  <nav id="modes">
+    <button data-mode="map" class="on">Map</button>
+    <button data-mode="replay" disabled>Replay</button>
+    <button data-mode="mcdu" disabled>MCDU</button>
+    <button data-mode="feed">Messages</button>
+  </nav>
+  <button id="radioBtn" title="Listen to ATC radio">ATC radio</button>
+</header>
+
+<form id="searchBox" autocomplete="off">
+  <svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>
+  <input id="search" placeholder="Flight number or aircraft registration" spellcheck="false">
+</form>
+<div id="toast"></div>
+<div id="mapNote"></div>
+
+<!-- flight sheet -->
+<section id="sheet" aria-live="polite">
+  <button class="close" id="sheetClose" aria-label="Close">×</button>
+  <div class="sheet-head">
+    <span id="shBadge" class="badge"></span>
+    <h2 id="shCallsign"></h2>
+    <span id="shRoute"></span>
+  </div>
+  <div id="shSub"></div>
+  <div id="shListen">
+    <button id="lpBtn" class="lp-btn">🎧 Listen to this plane</button>
+    <select id="lpAlt" aria-label="Other frequencies" style="display:none"></select>
+    <div id="lpInfo"></div>
+  </div>
+  <div class="lbl" id="shLbl">ACARS pilot messages</div>
+  <blockquote id="shQuote"></blockquote>
+  <div id="shMeta">
+    <span id="shTime"></span>
+    <span class="pager"><button id="shPrev" aria-label="Previous message">‹</button><span id="shPos"></span><button id="shNext" aria-label="Next message">›</button></span>
+  </div>
+  <div id="shAtc"></div>
+</section>
+
+<!-- pilot messages feed -->
+<section id="feed" class="view">
+  <div class="feed-head">
+    <h1>Pilot messages</h1>
+    <div id="feedSub">Live crew messages from aircraft worldwide</div>
+    <form id="feedSearchBox" autocomplete="off">
+      <svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>
+      <input id="feedSearch" placeholder="Flight number or aircraft registration" spellcheck="false">
+    </form>
+    <div class="chips"><button data-f="crew" class="on">Crew messages</button><button data-f="all">Everything</button></div>
+  </div>
+  <div id="cards"></div>
+</section>
+
+<!-- MCDU -->
+<section id="mcdu" class="view">
+  <div class="mcdu-unit">
+    <div class="mcdu-row">
+      <div class="lsk">-</div><div class="lsk">-</div><div class="lsk">-</div><div class="lsk">-</div><div class="lsk">-</div><div class="lsk" data-act="return">-</div>
+    </div>
+    <div class="mcdu-screen" id="mcduScreen"></div>
+    <div class="mcdu-row">
+      <div class="lsk">-</div><div class="lsk">-</div><div class="lsk">-</div><div class="lsk">-</div><div class="lsk">-</div><div class="lsk">-</div>
+    </div>
+    <div class="mcdu-keys" id="mcduKeys"></div>
+  </div>
+</section>
+
+<!-- ATC radio drawer -->
+<aside id="radio">
+  <div class="radio-head">
+    <b>ATC radio</b>
+    <button class="close" id="radioClose" aria-label="Close">×</button>
+  </div>
+  <div class="radio-ctl">
+    <select id="feedSel"></select>
+    <button id="listen">▶ Listen</button>
+  </div>
+  <div id="radioStatus">Pick a frequency</div>
+  <div id="radioLog"></div>
+  <div class="radio-note">Audio: LiveATC.net volunteer feeds. Transcripts are machine-generated and can be wrong.</div>
+</aside>
+<audio id="audio" preload="none"></audio>
+
+<script src="vendor/leaflet/leaflet.js"></script>
+<script src="finder.js"></script>
+<script src="backend.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

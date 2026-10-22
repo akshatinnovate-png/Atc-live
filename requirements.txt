@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+httpx
+numpy
+faster-whisper
+anthropic  # optional: AI headlines (HEADLINES=claude)
