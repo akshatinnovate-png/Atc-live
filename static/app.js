@@ -54,10 +54,32 @@ var saved = null;
 try { saved = JSON.parse(localStorage.getItem("atc-view")); } catch(e){}
 var map = L.map("map", { zoomControl:false, worldCopyJump:true, minZoom:3 })
   .setView(saved ? [saved.lat, saved.lon] : [38.2, -84.9], saved ? saved.z : 8);
-L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-  subdomains:"abcd", maxZoom:19,
-  attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a> · ADS-B: adsb.fi / adsb.lol'
-}).addTo(map);
+// Basemap: Esri's dark grey canvas (no API key needed). If its tiles fail,
+// fall back to OpenStreetMap, darkened with CSS.
+var ADSB_CREDIT = " · ADS-B: adsb.fi / adsb.lol";
+var ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/";
+map.createPane("labels");
+map.getPane("labels").style.zIndex = 350;          // above tiles, below routes and planes
+map.getPane("labels").style.pointerEvents = "none";
+var basemap = [
+  L.tileLayer(ESRI + "World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}", {
+    maxNativeZoom:16, maxZoom:19,
+    attribution:'Tiles &copy; <a href="https://www.esri.com">Esri</a>, HERE, Garmin, &copy; OpenStreetMap contributors' + ADSB_CREDIT
+  }),
+  L.tileLayer(ESRI + "World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}", { maxNativeZoom:16, maxZoom:19, pane:"labels" })
+];
+basemap.forEach(function(l){ l.addTo(map); });
+var tileStats = { ok:0, bad:0 };
+basemap[0].on("tileload", function(){ tileStats.ok++; });
+basemap[0].on("tileerror", function(){
+  if (++tileStats.bad < 6 || tileStats.ok > tileStats.bad || !basemap.length) return;
+  basemap.forEach(function(l){ map.removeLayer(l); });
+  basemap = [];
+  document.body.classList.add("osm");
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom:19, attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' + ADSB_CREDIT
+  }).addTo(map);
+});
 var routeLayer = L.layerGroup().addTo(map);
 
 map.on("moveend", function(){

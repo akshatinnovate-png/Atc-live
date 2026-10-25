@@ -29,6 +29,7 @@ var AIRLINES = {
 };
 var IATA_TO_ICAO = {};
 Object.keys(AIRLINES).forEach(function(icao){ IATA_TO_ICAO[AIRLINES[icao][0]] = IATA_TO_ICAO[AIRLINES[icao][0]] || icao; });
+IATA_TO_ICAO.NW = "DAL";  // Delta still uses Northwest's old code on ACARS
 function flightToCallsign(q){
   var m = /^([A-Z0-9]{2})0*(\d{1,4}[A-Z]{0,2})$/.exec(q);
   return m && IATA_TO_ICAO[m[1]] ? IATA_TO_ICAO[m[1]] + m[2] : q;

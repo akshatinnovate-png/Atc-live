@@ -31,6 +31,11 @@ IATA_TO_ICAO = {
     "NH": "ANA", "KE": "KAL", "OZ": "AAR", "MU": "CES", "CA": "CCA", "CZ": "CSN",
     "AM": "AMX", "Y4": "VOI", "CM": "CMP", "AV": "AVA", "LA": "LAN", "SK": "SAS",
     "AY": "FIN", "TP": "TAP", "OS": "AUA", "SN": "BEL", "LO": "LOT", "W6": "WZZ",
+    # Delta aircraft still send ACARS under Northwest's old code
+    "NW": "DAL", "FI": "ICE", "BR": "EVA", "CI": "CAL", "EW": "EWG", "VY": "VLG",
+    "A3": "AEE", "LY": "ELY", "MS": "MSR", "SV": "SVA", "ET": "ETH", "KQ": "KQA",
+    "PR": "PAL", "GA": "GIA", "MH": "MAS", "TG": "THA", "VN": "HVN", "NZ": "ANZ",
+    "VA": "VOZ", "WY": "OMA", "GF": "GFA", "KU": "KAC", "UL": "ALK", "PK": "PIA",
 }
 
 # Labels that carry automated or link-management traffic, never crew text.
@@ -67,6 +72,8 @@ def acars_flight_to_callsign(flight):
     m = re.fullmatch(r"([A-Z0-9]{2})0*(\d{1,4}[A-Z]{0,2})", flight)
     if m and m.group(1) in IATA_TO_ICAO:
         return IATA_TO_ICAO[m.group(1)] + m.group(2)
+    if m:  # unknown airline: at least drop the zero padding ("XQ0642" -> "XQ642")
+        return m.group(1) + m.group(2)
     return flight or None
 
 

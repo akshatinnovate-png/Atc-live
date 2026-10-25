@@ -12,7 +12,11 @@ button{ font-family:inherit; }
 #map{ position:fixed; inset:0; background:var(--navy); }
 .leaflet-container{ background:var(--navy); font-family:var(--font); }
 /* CARTO dark tiles, shifted toward navy to match the look */
+/* Esri dark grey, shifted toward navy to match the look */
 .leaflet-tile-pane{ filter:sepia(.35) hue-rotate(180deg) saturate(2.2) brightness(.95) contrast(1.05); }
+.leaflet-labels-pane{ opacity:.85; }
+/* OpenStreetMap fallback is a light map: invert it into a dark navy one */
+body.osm .leaflet-tile-pane{ filter:invert(1) hue-rotate(200deg) saturate(.5) brightness(.8) contrast(.9); }
 .leaflet-control-attribution{ background:rgba(10,22,40,.7)!important; color:var(--dim)!important; font-size:10px; }
 .leaflet-control-attribution a{ color:#b7c3d6!important; }
 .leaflet-control-zoom{ display:none; }

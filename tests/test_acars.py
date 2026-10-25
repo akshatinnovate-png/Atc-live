@@ -14,6 +14,10 @@ def test_flight_to_callsign():
     assert acars_flight_to_callsign("AA01779") == "AAL1779"
     assert acars_flight_to_callsign("6E0123") == "IGO123"
     assert acars_flight_to_callsign("XX123") == "XX123"
+    assert acars_flight_to_callsign("XQ0642") == "XQ642"
+    # seen live: Delta sends ACARS as NW, Icelandair as FI
+    assert acars_flight_to_callsign("NW0230") == "DAL230"
+    assert acars_flight_to_callsign("FI0642") == "ICE642"
 
 
 def test_acarsdec_format():
