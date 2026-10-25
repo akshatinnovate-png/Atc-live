@@ -130,7 +130,7 @@ BrowserBackend.prototype = {
   _plane: function(a){
     return { hex:(a.hex || "").toLowerCase(), callsign:(a.flight || "").trim().toUpperCase(), reg:a.r || null,
       type:a.t || null, desc:a.desc || null, lat:a.lat, lon:a.lon, alt:a.alt_baro, gs:a.gs,
-      track:a.track != null ? a.track : (a.true_heading || 0), squawk:a.squawk || null, msgs:0, lastMsg:null };
+      track:a.track != null ? a.track : (a.true_heading || 0), squawk:a.squawk || null, msgs:0, crew:0, lastMsg:null };
   },
   _planes: function(rows){
     var self = this;

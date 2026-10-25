@@ -92,3 +92,39 @@ def test_feed_is_newest_first_even_if_received_out_of_order():
 def test_fallback_headline_does_not_end_on_a_connector():
     assert fallback_headline("NEED WHEELCHAIR AT GATE FOR TWO PAX") == "Need wheelchair at gate for two"
     assert fallback_headline("PLEASE CALL CREW SCHEDULING ABOUT") == "Call crew scheduling"
+
+
+# Real messages seen on airframes.io; none of these were typed by a crew.
+REAL_AUTOMATED = [
+    # JIA5317 (CRJ-900) maintenance computer report: wordy but machine-made
+    "PAGE 00001 MDC REPORT: SYSTEM PARAMETERS FILENAME: N619NN8.SP TIME: 01:55 DATE: 25Oct2026 MDC APPLICATION "
+    "PN: 832-6207-426 MDC TABLES PN: 810-0042-115 L FLAP BPSU POS-SFEC1 70.61 DEG L FLAP BPSU POS-SFEC2 70.73 DEG "
+    "L OB L/E TEMP 15.3 C L OB WHEEL SPEED 0.0 KTS APU TOT HOURS HISTORY 9855.5 HRS APU CYCLES HISTORY 17052 CYC "
+    "LA FADEC CHAN IN-CNTR 0 T=1 LOB SLAT DIS PROX SFEC1 FAR",
+    # UAL64 brake data
+    "CTIVITY; 20 +0.1;; 21 +0.1;ENGAGED;; 22 ;25;OCT;26;01:54:06 RPT13;PG2;REAL;SW030M4GV09 1 2 3 243.1;-1.57;5055;"
+    "248.8;-2.26 4 249.6;-1.55;4953;249.4;-2.26 5 243.8;-1.57;5017;241.0;+0.03;BRK 6",
+    # ASA34 flight plan / fault log
+    "#T1BRTE 1 25OCT26 0149 N712AL ASA34 KSEA/KJFK BCG59-U000-08E7 BCG3A-0MFC-0015 L 2101 24OCT26 FDE 34230132 I 0147 25OCT26",
+    # CMP366 position report
+    "POSN40039W074128,GREIN,014817,368,MYRCA,015106,JFK,M48,327024,1232ECF",
+    # AFR033 encrypted
+    "T.0&HDeF/k.E`<E<'Szm@ukK|",
+]
+REAL_CREW = [
+    "FA1 REPORTS PAX IN SEAT 9D IS VERY UNWELL AND NEEDS MEDICAL ASSISTANCE ON ARRIVAL PLEASE ADVISE",
+    "CABIN CREW FOUND PAX WITH COCAINE ONBOARD PLEASE ARRANGE POLICE IN IBZ",
+    "PLS ADVISE GATE FOR ARRIVAL KMIA AND CONNECTING PAX COUNT THANKS",
+    "NEED 2 WHEELCHAIRS AT GATE B12 AND ONE UNACCOMPANIED MINOR ESCORT PLEASE",
+    "DELAYED 25 MIN DUE TO LATE CATERING TRUCK WILL ADVISE NEW ETD",
+]
+
+
+def test_real_automated_reports_are_not_crew_messages():
+    for text in REAL_AUTOMATED:
+        assert not is_crew_text(text), text[:40]
+
+
+def test_real_crew_messages_still_detected():
+    for text in REAL_CREW:
+        assert is_crew_text(text), text[:40]

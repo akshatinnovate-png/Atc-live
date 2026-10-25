@@ -139,16 +139,27 @@ def normalize(raw, source="local"):
     return msg
 
 
+# Machine reports read like words but carry telltale structure.
+_READING = re.compile(r"[-+]?\d+(?:\.\d+)?\s*(?:DEG|KTS?|HRS|CYC|PSI|PSIG|RPM|LBS?|KGS?|FT|V|VDC|AMPS?|C|F|%|PCT|NM|MIN)\b")
+_REPORT_HEADER = re.compile(r"\b(?:PAGE\s+\d+|REPORT:|FILENAME:|PN:|RPT\d*;|SYSTEM PARAMETERS|SNAPSHOT|ACMS|CMC|MDC)\b")
+_FIELD_LABEL = re.compile(r"\b[A-Z][A-Z ]{1,20}:")
+
+
 def is_crew_text(text, label=None):
     """True for human-written messages; False for automated reports.
 
     Free text reads like words; automated reports are mostly codes and digits
     ("POSN N40123W073456,ROBUC,153012,350"). We look at how much of the
-    message is pronounceable words.
+    message is pronounceable words, then rule out reports that are wordy
+    but machine-made: sensor readings with units ("70.61 DEG", "0.0 KTS"),
+    report headers ("PAGE 00001", "FILENAME:") and stacks of "FIELD:" labels.
     """
     if label in AUTOMATED_LABELS:
         return False
     upper = text.upper()
+    if (len(_READING.findall(upper)) >= 3 or _REPORT_HEADER.search(upper)
+            or len(_FIELD_LABEL.findall(upper)) >= 3):
+        return False
     tokens = re.findall(r"\S+", upper)
     if len(tokens) < 5:
         return False

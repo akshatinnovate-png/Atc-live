@@ -399,6 +399,7 @@ def _plane(a, idx):
         for m in idx.get(key, ()) if key[1] else ():
             matched[m["id"]] = m
     p["msgs"] = len(matched)
+    p["crew"] = sum(1 for m in matched.values() if m["interesting"])
     p["lastMsg"] = max(matched.values(), key=lambda m: m["t"]) if matched else None
     return p
 

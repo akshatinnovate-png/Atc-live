@@ -76,6 +76,7 @@ def test_receiver_message_reaches_feed_and_traffic(client):
     assert [p["hex"] for p in planes] == ["a323b8", "abcdef"]  # no-position rows dropped
     aal = planes[0]
     assert aal["callsign"] == "AAL1779" and aal["msgs"] == 2 and aal["lastMsg"]["label"] == "Q0"
+    assert aal["crew"] == 1  # the position report doesn't count as crew
     assert planes[1]["msgs"] == 0
 
     msgs = client.get("/api/messages/aircraft?hex=a323b8&reg=N123AA&callsign=AAL1779").json()

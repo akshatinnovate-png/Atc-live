@@ -154,7 +154,8 @@ function markerHtml(p){
   var badge = p.callsign ? badgeHtml(p.callsign) : "";
   return '<div class="ac-plane" style="transform:rotate(' + (p.track || 0) + 'deg)">' + PLANE_SVG + '</div>' +
     '<div class="ac-tag' + (badge ? "" : " noBadge") + '">' + badge + esc(label) +
-    (p.msgs ? '<span class="count">' + p.msgs + '</span>' : '') + '</div>';
+    (p.crew ? '<span class="count" title="Crew messages">' + p.crew + '</span>'
+      : p.msgs ? '<span class="count auto" title="Automated reports">' + p.msgs + '</span>' : '') + '</div>';
 }
 function markerClass(p){
   var cs = p.callsign, now = Date.now();
@@ -164,7 +165,7 @@ function markerClass(p){
 }
 function upsertMarker(p){
   var m = state.markers[p.hex];
-  var key = labelOf(p) + "|" + p.msgs;
+  var key = labelOf(p) + "|" + p.msgs + "|" + p.crew;
   if (!m){
     m = L.marker([p.lat, p.lon], { icon:L.divIcon({ className:"", html:"", iconSize:[0,0] }), keyboard:false });
     m.on("click", function(e){ L.DomEvent.stopPropagation(e); select(p.hex); });
@@ -233,10 +234,10 @@ function loadSelMessages(resetIdx){
   api.aircraftMessages(p)
     .then(function(msgs){
       if (state.sel !== hex) return;
-      var wasLatest = state.msgIdx >= state.selMsgs.length - 1;
+      var wasDefault = state.msgIdx === defaultIdx(state.selMsgs);
       state.selMsgs = msgs;
       if (replay) return;  // don't jump while a replay is typing
-      if (resetIdx || wasLatest) state.msgIdx = Math.max(0, msgs.length - 1);
+      if (resetIdx || wasDefault) state.msgIdx = defaultIdx(msgs);
       renderQuote(false);
       setModesEnabled();
       if (state.mode === "mcdu") renderMcdu();
@@ -256,9 +257,31 @@ function renderSheetSub(){
   $("shSub").textContent = bits.join(" · ");
 }
 
+// Show the newest crew-written message first; automated reports only if
+// that's all the plane has sent.
+function defaultIdx(msgs){
+  for (var i = msgs.length - 1; i >= 0; i--) if (msgs[i].interesting) return i;
+  return Math.max(0, msgs.length - 1);
+}
+
+// Plain-English name for an automated report.
+var AUTO_KINDS = { "80":"Position report", "15":"Position report", "44":"Position report", "16":"Position report",
+  "10":"Gate, takeoff & landing times", "11":"Gate, takeoff & landing times", "12":"Gate, takeoff & landing times",
+  "QA":"Gate, takeoff & landing times", "QB":"Gate, takeoff & landing times", "QC":"Gate, takeoff & landing times", "QD":"Gate, takeoff & landing times",
+  "H2":"Weather data", "SA":"Datalink system status", "Q0":"Datalink link test", "_d":"Datalink keep-alive", "5U":"Weather request",
+  "B9":"Airport info (ATIS) request", "MA":"Encrypted airline data" };
+function autoKind(m){
+  var t = m.text.toUpperCase();
+  if (/^POS|POSN/.test(t)) return "Position report";
+  if (/METAR|TAF\b/.test(t)) return "Weather data";
+  return AUTO_KINDS[m.label] || "Aircraft systems data (engines, brakes, fuel…)";
+}
+
 function renderQuote(loading, typed){
   var q = $("shQuote"), msgs = state.selMsgs, n = msgs.length;
-  $("shLbl").textContent = "ACARS pilot messages" + (n ? " · " + n : "");
+  var crew = msgs.filter(function(m){ return m.interesting; }).length;
+  $("shLbl").textContent = !n ? "ACARS pilot messages" :
+    "ACARS messages · " + (crew ? crew + " from the crew" : "none from the crew yet") + " · " + (n - crew) + " automated";
   if (!n){
     q.className = "empty";
     q.textContent = loading ? "Loading messages…" : "No ACARS messages from this aircraft yet. New ones appear here live.";
@@ -267,9 +290,16 @@ function renderQuote(loading, typed){
     return;
   }
   var m = msgs[state.msgIdx];
-  q.className = "";
-  if (typed != null) q.innerHTML = esc("“" + m.text.slice(0, typed)) + '<span class="caret"></span>';
-  else q.textContent = "“" + m.text + "”";
+  if (m.interesting){
+    q.className = "";
+    if (typed != null) q.innerHTML = esc("“" + m.text.slice(0, typed)) + '<span class="caret"></span>';
+    else q.textContent = "“" + m.text + "”";
+  } else {
+    // machine-to-airline data: show it as data, not as something a pilot said
+    q.className = "auto";
+    q.innerHTML = '<span class="auto-tag">Automated report · ' + esc(autoKind(m)) + '<small>Sent by the aircraft’s computers, not typed by the crew</small></span>' +
+      '<span class="auto-text">' + esc(typed != null ? m.text.slice(0, typed) : m.text) + '</span>';
+  }
   $("shTime").textContent = clock(m.t) + " · " + ago(m.t) + (m.label ? " · label " + m.label : "") + (m.source === "airframes" ? " · via airframes.io" : m.source === "receiver" ? " · own receiver" : "");
   $("shPos").textContent = (state.msgIdx + 1) + " / " + n;
   $("shPrev").disabled = state.msgIdx === 0;
