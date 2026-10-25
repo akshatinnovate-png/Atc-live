@@ -22,10 +22,21 @@ from acars import normalize
 
 log = logging.getLogger("atc-live.sources")
 
-AIRFRAMES_URL = os.environ.get("AIRFRAMES_URL", "https://api.airframes.io/messages?limit=200")
-AIRFRAMES_API_KEY = os.environ.get("AIRFRAMES_API_KEY")
-AIRFRAMES_KEY_HEADER = os.environ.get("AIRFRAMES_KEY_HEADER", "X-API-KEY")
-AIRFRAMES_POLL_S = float(os.environ.get("AIRFRAMES_POLL_S", "10"))
+
+def env(name, default=None):
+    """An environment setting with stray whitespace removed.
+
+    On Windows, `set KEY=value && next-command` keeps the space before
+    `&&` as part of the value, which breaks API keys sent as headers.
+    """
+    value = os.environ.get(name)
+    value = value.strip() if value is not None else ""
+    return value if value else default
+
+AIRFRAMES_URL = env("AIRFRAMES_URL", "https://api.airframes.io/messages?limit=200")
+AIRFRAMES_API_KEY = env("AIRFRAMES_API_KEY")
+AIRFRAMES_KEY_HEADER = env("AIRFRAMES_KEY_HEADER", "X-API-KEY")
+AIRFRAMES_POLL_S = float(env("AIRFRAMES_POLL_S", "10"))
 
 
 class _UDPProtocol(asyncio.DatagramProtocol):
@@ -86,7 +97,7 @@ class Headliner:
     (ANTHROPIC_API_KEY or an `ant auth login` profile) and HEADLINES=claude.
     """
 
-    MODEL = os.environ.get("HEADLINE_MODEL", "claude-opus-5-5")
+    MODEL = env("HEADLINE_MODEL", "claude-opus-5-5")
     SCHEMA = {
         "type": "object",
         "properties": {
@@ -110,14 +121,16 @@ class Headliner:
     )
 
     def __init__(self):
-        self.enabled = os.environ.get("HEADLINES") == "claude"
+        self.enabled = env("HEADLINES") == "claude"
         self._client = None
         self._sem = asyncio.Semaphore(4)
 
     def _get_client(self):
         if self._client is None:
             import anthropic
-            self._client = anthropic.AsyncAnthropic()
+            # strip the key for the same reason as env(); None falls back to
+            # the SDK's usual credential lookup
+            self._client = anthropic.AsyncAnthropic(api_key=env("ANTHROPIC_API_KEY"))
         return self._client
 
     async def headline(self, text):

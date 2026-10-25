@@ -37,15 +37,15 @@ from callsigns import extract_callsigns, guess_speaker
 from segmenter import SAMPLE_RATE, Segmenter
 
 ROOT = Path(__file__).parent
-FEEDS_FILE = Path(os.environ.get("FEEDS_FILE", ROOT / "feeds.json"))
+FEEDS_FILE = Path(sources.env("FEEDS_FILE", ROOT / "feeds.json"))
 FEEDS = {f["id"]: f for f in json.loads(FEEDS_FILE.read_text())}
-WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "small.en")
-TRANSCRIBER = os.environ.get("TRANSCRIBER", "whisper")  # "whisper" or "none"
+WHISPER_MODEL = sources.env("WHISPER_MODEL", "small.en")
+TRANSCRIBER = sources.env("TRANSCRIBER", "whisper")  # "whisper" or "none"
 IDLE_STOP_S = 60
 # LiveATC serves its pages and streams to ordinary browsers.
 BROWSER_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-LIVEATC = os.environ.get("LIVEATC_BASE", "https://www.liveatc.net")
-STREAM_HOSTS = os.environ.get("STREAM_HOSTS", "liveatc.net").split(",")
+LIVEATC = sources.env("LIVEATC_BASE", "https://www.liveatc.net")
+STREAM_HOSTS = sources.env("STREAM_HOSTS", "liveatc.net").split(",")
 
 # Biases Whisper toward radio phraseology instead of everyday words.
 ATC_PROMPT = (
@@ -166,7 +166,7 @@ class FeedWorker:
 workers = {}
 store = MessageStore()
 headliner = sources.Headliner()
-ACARS_UDP_PORT = int(os.environ.get("ACARS_UDP_PORT", "5550"))
+ACARS_UDP_PORT = int(sources.env("ACARS_UDP_PORT", "5550"))
 
 
 def on_acars(msg):

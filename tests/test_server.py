@@ -147,3 +147,14 @@ def test_listen_over_ocean_and_when_nothing_streams(client, monkeypatch):
     assert r["feed"] is None and "ocean" in r["reason"]
     r = client.get("/api/listen?lat=19.09&lon=72.87&alt=2000&gs=160").json()
     assert r["feed"] is None and "VABB" in r["reason"]
+
+
+def test_settings_ignore_stray_whitespace(monkeypatch):
+    # Windows: `set AIRFRAMES_API_KEY=abc && python ...` stores "abc "
+    monkeypatch.setenv("AIRFRAMES_API_KEY", "af_abc123 ")
+    monkeypatch.setenv("HEADLINES", " claude\t")
+    monkeypatch.setenv("EMPTY_SETTING", "   ")
+    assert server.sources.env("AIRFRAMES_API_KEY") == "af_abc123"
+    assert server.sources.env("HEADLINES") == "claude"
+    assert server.sources.env("EMPTY_SETTING", "fallback") == "fallback"
+    assert server.sources.env("NOT_SET_AT_ALL") is None
