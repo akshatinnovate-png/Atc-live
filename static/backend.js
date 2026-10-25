@@ -4,10 +4,9 @@
    including ACARS messages and live Whisper transcripts.
 
    Browser mode: no server, e.g. hosted on GitHub Pages. The page calls the
-   public services directly: ADS-B, routes and photos from their open APIs,
-   and LiveATC through public CORS proxies (LiveATC sends no CORS headers).
-   Audio plays straight from LiveATC. ACARS and transcripts need the server,
-   so they're unavailable here and the page says so. */
+   public ADS-B, route and photo APIs directly (through public CORS proxies
+   if needed). ACARS and transcripts need the server, so they're unavailable
+   here and the page says so. */
 (function(){
 "use strict";
 
@@ -51,6 +50,16 @@ function anyOf(promises){
   });
 }
 
+// Bundled airport list (data/airports.json), loaded on first use.
+var airportsPromise = null;
+function loadAirports(){
+  if (!airportsPromise){
+    airportsPromise = fetchJSON(new URL("../data/airports.json", new URL(".", location.href)).href, 20000).then(Finder.toAirports);
+    airportsPromise.catch(function(){ airportsPromise = null; });
+  }
+  return airportsPromise;
+}
+
 /* ---------- server mode ---------- */
 function ServerBackend(){
   this.mode = "server";
@@ -69,9 +78,7 @@ ServerBackend.prototype = {
     new EventSource("/api/messages/stream").addEventListener("message", function(e){ onMessage(JSON.parse(e.data)); });
   },
   feeds: function(){ return fetchJSON("/api/feeds"); },
-  listen: function(p){
-    return fetchJSON("/api/listen?lat=" + p.lat + "&lon=" + p.lon + "&alt=" + encodeURIComponent(p.alt == null ? "" : p.alt) + "&gs=" + (p.gs || 0), 30000);
-  },
+  airports: loadAirports,
   transcripts: function(feed){ return new EventSource("/api/transcripts/" + encodeURIComponent(feed.id)); },
   audioUrls: function(feed){ return Promise.resolve(["/api/audio/" + encodeURIComponent(feed.id) + "?t=" + Date.now()]); }
 };
@@ -87,14 +94,12 @@ var PROXIES = [
   { name:"corsproxy", wrap:function(u){ return "https://corsproxy.io/?url=" + encodeURIComponent(u); } },
   { name:"codetabs", wrap:function(u){ return "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u); } }
 ];
-var LIVEATC = "https://www.liveatc.net";
 
 function BrowserBackend(base){
   this.mode = "browser";
   this.base = base;          // URL of the app's folder (for data files)
   this.good = {};            // host -> proxy that last worked for it
   this.cache = {};
-  this._airports = null;
 }
 BrowserBackend.prototype = {
   // Try the last proxy that worked for this host first, then race the rest.
@@ -182,63 +187,12 @@ BrowserBackend.prototype = {
   status: function(){ return Promise.resolve({ mode:"browser", messages:0 }); },
   messageStream: function(){},
   feeds: function(){
-    return fetchJSON(new URL("../feeds.json", this.base).href).then(function(list){
-      return list.map(function(f){ return Object.assign({}, f, { mount:f.url.split("/").pop() }); });
-    });
+    return fetchJSON(new URL("../feeds.json", this.base).href);
   },
-  _airportList: function(){
-    if (!this._airports){
-      this._airports = fetchJSON(new URL("../data/airports.json", this.base).href, 20000).then(Finder.toAirports);
-      this._airports.catch(function(){ this._airports = null; }.bind(this));
-    }
-    return this._airports;
-  },
-  _airportFeeds: function(icao){
-    var self = this;
-    return self._cached("la" + icao, 6 * 3600e3, function(){
-      return self._get(LIVEATC + "/search/?icao=" + icao, 12000).then(Finder.parseLiveatcSearch);
-    }).catch(function(){ return null; });
-  },
-  listen: function(p){
-    var self = this;
-    return self._airportList().then(function(airports){
-      var near = Finder.nearestAirports(airports, p.lat, p.lon, 8, 200);
-      if (!near.length){
-        return { phase:null, feed:null, alternatives:[], airports:[],
-          reason:"No airports within 200 NM, so there's no ATC radio to hear here (likely over the ocean)." };
-      }
-      var closest = near.reduce(function(a, b){ return b.dist_nm < a.dist_nm ? b : a; });
-      var alt = p.alt === "ground" ? "ground" : (typeof p.alt === "number" ? p.alt : null);
-      var phase = Finder.flightPhase(alt, p.gs || 0, closest.dist_nm, closest.elev_ft);
-      return Promise.all(near.map(function(a){ return self._airportFeeds(a.icao); })).then(function(results){
-        var ranked = Finder.choose(near.map(function(a, i){ return [a, results[i] || []]; }), phase);
-        ranked.forEach(function(f){ f.id = "la-" + f.mount; });
-        var unreachable = results.every(function(r){ return r === null; });
-        var reason = ranked.length
-          ? phase.charAt(0).toUpperCase() + phase.slice(1) + " phase, nearest airport " + closest.icao + " (" + Math.round(closest.dist_nm) + " NM)"
-          : unreachable ? "Couldn't reach liveatc.net to look up frequencies. Try again in a moment."
-          : "No volunteer is streaming ATC near this aircraft right now (checked " + near.slice(0, 5).map(function(a){ return a.icao; }).join(", ") + ").";
-        return { phase:phase, feed:ranked[0] || null, alternatives:ranked.slice(1, 8), airports:near.map(function(a){ return a.icao; }), reason:reason };
-      });
-    });
-  },
+  airports: loadAirports,
   transcripts: function(){ return null; },
-  // Candidate stream URLs, best first. An https page can't play http audio.
-  audioUrls: function(feed){
-    var self = this, mount = feed.mount || feed.id.replace(/^la-/, "");
-    var secure = location.protocol === "https:";
-    var fallback = ["https://s1-fmt2.liveatc.net/" + mount, "https://d.liveatc.net/" + mount];
-    if (!secure) fallback.push("http://d.liveatc.net/" + mount);
-    return self._cached("pls" + mount, 6 * 3600e3, function(){
-      return self._get(LIVEATC + "/play/" + mount + ".pls", 8000).then(Finder.parsePls);
-    }).catch(function(){ return null; }).then(function(url){
-      var list = [];
-      if (url && /^https?:\/\/([a-z0-9-]+\.)*liveatc\.net\//i.test(url)){
-        list.push(url.replace(/^http:/, secure ? "https:" : "http:"));
-      }
-      return list.concat(fallback.filter(function(u){ return list.indexOf(u) < 0; }));
-    });
-  }
+  // Feeds here are your own streams (feeds.json); the browser plays them directly.
+  audioUrls: function(feed){ return Promise.resolve([feed.url]); }
 };
 
 /* ---------- pick a mode ---------- */

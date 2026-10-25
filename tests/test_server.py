@@ -96,7 +96,8 @@ def test_search_and_static(client):
     assert client.get("/").status_code == 200
     assert client.get("/static/app.js").status_code == 200
     assert client.get("/static/vendor/leaflet/leaflet.js").status_code == 200
-    assert client.get("/api/feeds").json()[0]["id"]
+    assert client.get("/api/feeds").json() == []  # no LiveATC presets; add your own streams
+    assert client.get("/data/airports.json").json()["airports"]  # used by the page's airport finder
 
 
 def test_upstream_failure_is_502(monkeypatch):
@@ -107,47 +108,6 @@ def test_upstream_failure_is_502(monkeypatch):
     with TestClient(server.app) as c:
         assert c.get("/api/traffic?lat=1&lon=1").status_code == 502
 
-
-def test_listen_picks_feed_and_resolves_stream(client, monkeypatch):
-    page = (ROOT / "tests" / "fixtures" / "liveatc_search_kjfk.html").read_text()
-    calls = []
-
-    async def fake_get(path):
-        calls.append(path)
-        if path.startswith("/search/?icao=KJFK"):
-            return page
-        if path == "/play/zny_34.pls":
-            return "[playlist]\nFile1=http://s1-bos.liveatc.net/zny_34\n"
-        if path == "/play/evil.pls":
-            return "[playlist]\nFile1=http://169.254.169.254/latest\n"
-        if path.startswith("/search/"):
-            return "<html>no feeds</html>"
-        raise AssertionError(path)
-    monkeypatch.setattr(server, "_liveatc_get", fake_get)
-
-    r = client.get("/api/listen?lat=40.70&lon=-73.70&alt=36000&gs=450").json()
-    assert r["phase"] == "enroute" and r["feed"]["id"] == "la-zny_34" and r["feed"]["airport"] == "KJFK"
-    assert "kjfk_app_final" not in [a["mount"] for a in r["alternatives"]]
-
-    r = client.get("/api/listen?lat=40.64&lon=-73.78&alt=ground&gs=12").json()
-    assert r["phase"] == "ground" and r["feed"]["mount"] == "kjfk9_s"
-
-    feed = server.asyncio.run(server._feed("la-zny_34"))
-    assert feed["url"] == "http://s1-bos.liveatc.net/zny_34"
-    # a playlist pointing anywhere else is never relayed
-    assert server.asyncio.run(server._feed("la-evil"))["url"] == "http://d.liveatc.net/evil"
-    with pytest.raises(server.HTTPException):
-        server.asyncio.run(server._feed("la-../etc"))
-
-
-def test_listen_over_ocean_and_when_nothing_streams(client, monkeypatch):
-    async def none(path):
-        return "<html></html>"
-    monkeypatch.setattr(server, "_liveatc_get", none)
-    r = client.get("/api/listen?lat=0&lon=-30&alt=37000").json()
-    assert r["feed"] is None and "ocean" in r["reason"]
-    r = client.get("/api/listen?lat=19.09&lon=72.87&alt=2000&gs=160").json()
-    assert r["feed"] is None and "VABB" in r["reason"]
 
 
 def test_settings_ignore_stray_whitespace(monkeypatch):

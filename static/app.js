@@ -130,6 +130,7 @@ function applyTraffic(list){
     var p = state.planes[state.sel];
     if (p.msgs !== state.selCount){ state.selCount = p.msgs; loadSelMessages(false); }
     renderSheetSub();
+    renderListen();
     drawRoute();
     keepSelVisible();
   }
@@ -312,14 +313,12 @@ function renderAtcMentions(){
   var p = state.planes[state.sel], el = $("shAtc");
   if (!p){ el.innerHTML = ""; return; }
   var mine = (p.callsign && state.atcMentions[p.callsign]) || [];
-  var following = tuner.followHex === p.hex && tuner.feed;
-  var rows = following ? (tuner.recent || []).slice(-4) : mine.slice(-4);
-  var title = following ? "On frequency now" : "Heard on ATC radio";
+  var rows = mine.slice(-4), title = "Heard on ATC radio";
   el.innerHTML = rows.length ? '<div class="lbl" style="margin-top:0">' + title + '</div>' + rows.map(function(r){
     var me = p.callsign && r.callsigns.indexOf(p.callsign) >= 0;
     return '<div class="row' + (me ? " me" : "") + '"><small>' + clock(r.t) + '</small>' +
       (r.speaker ? '<span class="tag ' + r.speaker + '">' + r.speaker + '</span> ' : '') + esc(r.text) + '</div>';
-  }).join("") : (following ? '<div class="row"><small>Waiting for the next radio call…</small></div>' : "");
+  }).join("") : "";
 }
 
 /* route line: origin -> where it has been -> aircraft -> destination */
@@ -597,11 +596,17 @@ $("searchBox").onsubmit = function(e){
 /* ---------------- ATC radio ---------------- */
 // One tuner shared by the radio drawer and "Listen to this plane".
 var audio = $("audio"), radioFeeds = [];
-var tuner = { feed:null, es:null, followHex:null, manual:false, pending:null, timer:null };
+var tuner = { feed:null, es:null };
 
 $("radioBtn").onclick = function(){ $("radio").classList.add("show"); };
 $("radioClose").onclick = function(){ $("radio").classList.remove("show"); };
 function renderFeedSel(){
+  if (!radioFeeds.length){
+    $("feedSel").innerHTML = '<option value="">No streams set up</option>';
+    $("radioStatus").innerHTML = "Add your own receiver's stream to <b>feeds.json</b> (see the README). " +
+      "For any other plane, tap it and use <b>Listen on LiveATC</b>.";
+    return;
+  }
   var opts = radioFeeds.slice();
   if (tuner.feed && !opts.some(function(f){ return f.id === tuner.feed.id; })) opts.unshift(tuner.feed);
   $("feedSel").innerHTML = '<option value="">Choose a frequency…</option>' + opts.map(function(f){
@@ -611,7 +616,6 @@ function renderFeedSel(){
 }
 $("feedSel").onchange = function(){
   var id = this.value, f = radioFeeds.filter(function(x){ return x.id === id; })[0];
-  stopFollowing();
   if (!f){ tune(null); return; }
   map.setView([f.lat, f.lon], Math.max(map.getZoom(), 9));
   tune(f, { play:!audio.paused });
@@ -623,7 +627,7 @@ function tune(feed, opts){
   var wasPlaying = !audio.paused;
   stopAudio();
   $("radioLog").innerHTML = "";
-  tuner.feed = feed; tuner.recent = [];
+  tuner.feed = feed;
   renderFeedSel();
   renderListen();
   if (!feed){ $("radioStatus").textContent = "Pick a frequency"; return; }
@@ -691,7 +695,6 @@ function addRadioLine(m){
   log.appendChild(el);
   while (log.children.length > 200) log.removeChild(log.firstChild);
   if (atBottom) log.scrollTop = log.scrollHeight;
-  tuner.recent = (tuner.recent || []).concat([m]).slice(-20);
   m.callsigns.forEach(function(cs){
     state.talking[cs] = Date.now();
     (state.atcMentions[cs] = state.atcMentions[cs] || []).push(m);
@@ -707,74 +710,40 @@ $("radioLog").addEventListener("click", function(e){
   if (p){ map.setView([p.lat, p.lon]); select(p.hex); } else toast(cs + " isn't on the map right now.");
 });
 
-/* "Listen to this plane": find its frequency, play it, follow it as it flies */
-function findFrequency(p){
-  return api.listen(p);
-}
-function listenToPlane(hex){
-  var p = state.planes[hex];
-  if (!p) return;
-  if (tuner.followHex === hex && !audio.paused){ stopFollowing(); stopAudio(); return; }
-  $("lpBtn").disabled = true;
-  setNote(hex, "Finding the frequency " + labelOf(p) + " is on…");
-  findFrequency(p).then(function(r){
-    $("lpBtn").disabled = false;
-    if (!r.feed){ setNote(hex, r.reason); return; }
-    tuner.choices = [r.feed].concat(r.alternatives);
-    tuner.note = null;
-    tuner.followHex = hex; tuner.manual = false; tuner.pending = null; tuner.reason = r.reason;
-    tune(r.feed, { play:true });
-    clearInterval(tuner.timer);
-    tuner.timer = setInterval(followTick, 45000);
-  }).catch(function(){
-    $("lpBtn").disabled = false;
-    setNote(hex, "Couldn't look up frequencies. Is the server online?");
-  });
-}
-// Re-check as the plane flies; switch after two checks agree (avoids flapping).
-function followTick(){
-  var p = state.planes[tuner.followHex];
-  if (!p || tuner.manual) return;
-  findFrequency(p).then(function(r){
-    if (!r.feed || !tuner.feed || r.feed.id === tuner.feed.id){ tuner.pending = null; return; }
-    if (tuner.pending !== r.feed.id){ tuner.pending = r.feed.id; return; }
-    tuner.pending = null; tuner.choices = [r.feed].concat(r.alternatives); tuner.reason = r.reason;
-    toast(labelOf(p) + " handed off → " + r.feed.name);
-    tune(r.feed, { keepPlaying:true });
-  }).catch(function(){});
-}
-function setNote(hex, text){ tuner.note = { hex:hex, text:text }; renderListen(); }
-function stopFollowing(){ tuner.followHex = null; clearInterval(tuner.timer); tuner.timer = null; renderListen(); }
-$("lpBtn").onclick = function(){ if (state.sel) listenToPlane(state.sel); };
-$("lpAlt").onchange = function(){
-  var id = this.value, f = (tuner.choices || []).filter(function(x){ return x.id === id; })[0];
-  if (!f) return;
-  tuner.manual = true;
-  tune(f, { play:true });
-};
-
+/* "Listen on LiveATC". LiveATC's terms don't allow its audio inside other
+   apps (and its site sits behind a human check), so we work out which
+   airport and which kind of frequency the plane is on, and open LiveATC's
+   own player page for it. */
+var airportList = null;
 function renderListen(){
-  var btn = $("lpBtn"), info = $("lpInfo"), alt = $("lpAlt");
-  if (!btn) return;
-  var mine = state.sel && tuner.followHex === state.sel && tuner.feed;
-  var playing = !audio.paused;
-  btn.classList.toggle("on", !!(mine && playing));
-  btn.innerHTML = mine && playing ? "■ Stop listening" : "🎧 Listen to this plane";
-  if (mine){
-    var f = tuner.feed;
-    info.innerHTML = (playing ? "Hearing " : "Tuned to ") + "<b>" + esc(f.name) + "</b>" +
-      (f.freqs && f.freqs.length ? " · " + esc(f.freqs.slice(0, 3).join(" / ")) : "") +
-      (f.airport ? " · via " + esc(f.airport) + (f.dist_nm != null ? " (" + Math.round(f.dist_nm) + " NM)" : "") : "") +
-      "<br><small>" + (tuner.manual ? "Frequency picked by you" : "Auto-follow on: switches frequency as the plane is handed off") + "</small>";
-    var choices = tuner.choices || [];
-    alt.style.display = choices.length > 1 ? "" : "none";
-    alt.innerHTML = choices.map(function(c){
-      return '<option value="' + esc(c.id) + '"' + (c.id === f.id ? " selected" : "") + '>' + esc(c.airport + " · " + c.name) + '</option>';
-    }).join("");
-  } else {
-    info.textContent = tuner.note && tuner.note.hex === state.sel ? tuner.note.text : "";
-    alt.style.display = "none";
+  var p = state.planes[state.sel], link = $("lpLink"), info = $("lpInfo"), more = $("lpMore");
+  if (!p || !link) return;
+  if (!airportList){
+    link.href = "https://www.liveatc.net/";
+    info.textContent = "Finding the nearest airport…";
+    more.innerHTML = "";
+    api.airports().then(function(list){ airportList = list; renderListen(); })
+      .catch(function(){ info.textContent = "Couldn't load the airport list. LiveATC still opens on its home page."; });
+    return;
   }
+  var s = Finder.suggest(airportList, p);
+  if (!s.airports.length){
+    link.href = "https://www.liveatc.net/";
+    link.textContent = "🎧 Open LiveATC";
+    info.innerHTML = "No airports within 200 NM: " + esc(labelOf(p)) + " is probably over the ocean. " +
+      "LiveATC's <b>HF Oceanic</b> feeds sometimes cover these routes.";
+    more.innerHTML = "";
+    return;
+  }
+  var a = s.airports[0];
+  link.href = a.url;
+  link.textContent = "🎧 Listen on LiveATC · " + a.icao;
+  info.innerHTML = esc(s.look.label) + " · on " + esc(a.icao) + (a.city ? " (" + esc(a.city) + ")" : "") +
+    ", " + Math.round(a.dist_nm) + " NM away, look for <b>" + esc(s.look.feeds) + "</b> feeds." +
+    "<br><small>Opens LiveATC's own player in a new tab. No feeds there? Try a nearby airport:</small>";
+  more.innerHTML = s.airports.slice(1).map(function(o){
+    return '<a href="' + esc(o.url) + '" target="_blank" rel="noopener">' + esc(o.icao) + ' <small>' + Math.round(o.dist_nm) + ' NM</small></a>';
+  }).join("");
 }
 
 Backend.ready.then(function(backend){

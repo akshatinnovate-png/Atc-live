@@ -4,7 +4,9 @@ Two kinds of real pilot traffic:
 
 * ACARS text messages (acars.py, sources.py): crew <-> airline datalink,
   from your own receiver over UDP and/or the airframes.io network.
-* ATC voice radio:
+* ATC voice radio, from streams listed in feeds.json that you're allowed to
+  use (e.g. your own airband receiver). For other planes the page links out
+  to LiveATC's own player, whose terms don't allow use in other apps.
     ffmpeg (stream -> 16 kHz PCM) -> Segmenter (one chunk per radio call)
       -> Whisper -> callsign extraction -> Server-Sent Events -> browser
   One worker runs per radio feed, shared by every browser tab, and stops a
@@ -30,7 +32,6 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-import atc_finder
 import sources
 from acars import MessageStore
 from callsigns import extract_callsigns, guess_speaker
@@ -42,10 +43,6 @@ FEEDS = {f["id"]: f for f in json.loads(FEEDS_FILE.read_text())}
 WHISPER_MODEL = sources.env("WHISPER_MODEL", "small.en")
 TRANSCRIBER = sources.env("TRANSCRIBER", "whisper")  # "whisper" or "none"
 IDLE_STOP_S = 60
-# LiveATC serves its pages and streams to ordinary browsers.
-BROWSER_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-LIVEATC = sources.env("LIVEATC_BASE", "https://www.liveatc.net")
-STREAM_HOSTS = sources.env("STREAM_HOSTS", "liveatc.net").split(",")
 
 # Biases Whisper toward radio phraseology instead of everyday words.
 ATC_PROMPT = (
@@ -122,7 +119,7 @@ class FeedWorker:
     async def _stream_once(self):
         proc = await asyncio.create_subprocess_exec(
             "ffmpeg", "-loglevel", "error", "-reconnect", "1", "-reconnect_streamed", "1",
-            "-user_agent", BROWSER_UA, "-i", self.feed["url"], "-f", "s16le", "-ac", "1", "-ar", str(SAMPLE_RATE), "-",
+            "-i", self.feed["url"], "-f", "s16le", "-ac", "1", "-ar", str(SAMPLE_RATE), "-",
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         )
         segmenter = Segmenter()
@@ -204,86 +201,15 @@ def list_feeds():
     return [{k: v for k, v in f.items() if k != "url"} for f in FEEDS.values()]
 
 
-DYNAMIC_FEEDS = {}  # "la-<mount>" -> feed, found by /api/listen
-
-
-async def _feed(feed_id):
-    if feed_id in FEEDS:
-        return FEEDS[feed_id]
-    if feed_id in DYNAMIC_FEEDS:
-        return DYNAMIC_FEEDS[feed_id]
-    if feed_id.startswith("la-") and atc_finder.MOUNT_RE.match(feed_id[3:]):
-        url = await _stream_url(feed_id[3:])
-        if url:
-            DYNAMIC_FEEDS[feed_id] = {"id": feed_id, "name": feed_id[3:], "url": url}
-            return DYNAMIC_FEEDS[feed_id]
-    raise HTTPException(404, "unknown feed")
-
-
-async def _liveatc_get(path):
-    async with httpx.AsyncClient(timeout=12, follow_redirects=True,
-                                 headers={"User-Agent": BROWSER_UA, "Referer": LIVEATC + "/"}) as client:
-        r = await client.get(LIVEATC + path)
-    r.raise_for_status()
-    return r.text
-
-
-async def _stream_url(mount):
-    """Resolve a LiveATC mount to its stream URL via the feed's .pls playlist."""
-    async def fetch():
-        try:
-            url = atc_finder.parse_pls(await _liveatc_get(f"/play/{mount}.pls"))
-        except httpx.HTTPError:
-            url = None
-        host = httpx.URL(url).host if url else ""
-        # only ever relay LiveATC's own stream servers
-        if url and any(host == h or host.endswith("." + h) for h in STREAM_HOSTS):
-            return url
-        return f"http://d.liveatc.net/{mount}"
-    return await _cached(("pls", mount), 6 * 3600, fetch)
-
-
-async def _airport_feeds(icao):
-    async def fetch():
-        try:
-            return atc_finder.parse_liveatc_search(await _liveatc_get(f"/search/?icao={icao}"))
-        except httpx.HTTPError:
-            return None  # don't cache failures for long
-    feeds = await _cached(("la", icao), 6 * 3600, fetch)
-    if feeds is None:
-        _cache.pop(("la", icao), None)
-    return feeds
-
-
-@app.get("/api/listen")
-async def listen(lat: float, lon: float, alt: str = "", gs: float = 0):
-    """Pick the live ATC frequency an aircraft at this position is most likely on."""
-    altitude = "ground" if alt == "ground" else (float(alt) if alt.replace(".", "", 1).lstrip("-").isdigit() else None)
-    airports = atc_finder.nearest_airports(lat, lon, limit=8, max_nm=200)
-    if not airports:
-        return {"phase": None, "feed": None, "alternatives": [], "airports": [],
-                "reason": "No airports within 200 NM, so there's no ATC radio to hear here (likely over the ocean)."}
-    closest = min(airports, key=lambda a: a["dist_nm"])
-    phase = atc_finder.flight_phase(altitude, gs, closest["dist_nm"], closest["elev_ft"])
-    results = await asyncio.gather(*(_airport_feeds(a["icao"]) for a in airports))
-    unreachable = all(r is None for r in results)
-    ranked = atc_finder.choose([(a, r or []) for a, r in zip(airports, results)], phase)
-    for f in ranked:
-        f["id"] = "la-" + f["mount"]
-    names = ", ".join(a["icao"] for a in airports[:5])
-    if ranked:
-        reason = f"{phase.capitalize()} phase, nearest airport {closest['icao']} ({closest['dist_nm']:.0f} NM)"
-    elif unreachable:
-        reason = "Couldn't reach liveatc.net to look up frequencies. Try again in a moment."
-    else:
-        reason = f"No volunteer is streaming ATC near this aircraft right now (checked {names})."
-    return {"phase": phase, "feed": ranked[0] if ranked else None, "alternatives": ranked[1:8],
-            "airports": [a["icao"] for a in airports], "reason": reason}
+def _feed(feed_id):
+    if feed_id not in FEEDS:
+        raise HTTPException(404, "unknown feed")
+    return FEEDS[feed_id]
 
 
 @app.get("/api/transcripts/{feed_id}")
 async def transcripts(feed_id: str):
-    feed = await _feed(feed_id)
+    feed = _feed(feed_id)
     worker = workers.get(feed_id) or workers.setdefault(feed_id, FeedWorker(feed))
     queue = asyncio.Queue()
 
@@ -317,9 +243,9 @@ def _sse(event, data):
 @app.get("/api/audio/{feed_id}")
 async def audio(feed_id: str):
     """Relay the feed's MP3 so the browser plays it from our own origin."""
-    url = (await _feed(feed_id))["url"]
+    url = _feed(feed_id)["url"]
     client = httpx.AsyncClient(follow_redirects=True, timeout=httpx.Timeout(15, read=None))
-    req = client.build_request("GET", url, headers={"User-Agent": BROWSER_UA})
+    req = client.build_request("GET", url, headers={"User-Agent": "atc-live/1.0"})
     try:
         resp = await client.send(req, stream=True)
     except httpx.HTTPError as e:

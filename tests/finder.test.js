@@ -1,32 +1,17 @@
-// node --test tests/finder.test.js — same cases as test_atc_finder.py, for the browser port.
+// node --test tests/finder.test.js
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
 const F = require("../static/finder.js");
 
-const PAGE = fs.readFileSync(path.join(__dirname, "fixtures", "liveatc_search_kjfk.html"), "utf8");
 const AIRPORTS = F.toAirports(JSON.parse(fs.readFileSync(path.join(__dirname, "..", "data", "airports.json"), "utf8")));
-
-test("parse search page", () => {
-  const feeds = F.parseLiveatcSearch(PAGE);
-  assert.deepEqual(feeds.map(f => f.mount), ["kjfk9_s", "kjfk_app_final", "kjfk_dep", "zny_34"]);
-  assert.deepEqual(feeds[0], { mount: "kjfk9_s", name: "KJFK Ground/Tower", status: "up", freqs: ["119.100", "121.900"] });
-  assert.equal(feeds[1].status, "down");
-  assert.equal(feeds[3].name, "ZNY New York Center (Sector 34)");
-  assert.deepEqual(F.parseLiveatcSearch("<html>No results</html>"), []);
-});
-
-test("parse pls", () => {
-  assert.equal(F.parsePls("[playlist]\nFile1=http://d.liveatc.net/kjfk9_s\n"), "http://d.liveatc.net/kjfk9_s");
-  assert.equal(F.parsePls("garbage"), null);
-});
 
 test("nearest airports worldwide", () => {
   assert.equal(F.nearestAirports(AIRPORTS, 40.64, -73.78)[0].icao, "KJFK");
-  assert.equal(F.nearestAirports(AIRPORTS, 19.09, 72.87)[0].icao, "VABB");
-  assert.equal(F.nearestAirports(AIRPORTS, 51.47, -0.46)[0].icao, "EGLL");
-  assert.deepEqual(F.nearestAirports(AIRPORTS, 0, -30), []);
+  assert.equal(F.nearestAirports(AIRPORTS, 19.09, 72.87)[0].icao, "VABB");   // Mumbai
+  assert.equal(F.nearestAirports(AIRPORTS, 51.47, -0.46)[0].icao, "EGLL");   // Heathrow
+  assert.deepEqual(F.nearestAirports(AIRPORTS, 0, -30), []);                 // mid-Atlantic
 });
 
 test("flight phase", () => {
@@ -34,15 +19,30 @@ test("flight phase", () => {
   assert.equal(F.flightPhase(1500, 150, 4), "tower");
   assert.equal(F.flightPhase(9000, 280, 30), "terminal");
   assert.equal(F.flightPhase(36000, 460, 30), "enroute");
-  assert.equal(F.flightPhase(5300, 30, 1, 5280), "ground");
+  assert.equal(F.flightPhase(5300, 30, 1, 5280), "ground");  // Denver-style high field
 });
 
-test("choose by phase, skip down feeds", () => {
-  const apt = { icao: "KJFK", name: "JFK", city: "New York", dist_nm: 3, lat: 40.6, lon: -73.8 };
-  const ranked = phase => F.choose([[apt, F.parseLiveatcSearch(PAGE)]], phase).map(f => f.mount);
-  assert.equal(ranked("ground")[0], "kjfk9_s");
-  assert.equal(ranked("tower")[0], "kjfk9_s");
-  assert.equal(ranked("terminal")[0], "kjfk_dep");
-  assert.equal(ranked("enroute")[0], "zny_34");
-  assert.ok(!ranked("terminal").includes("kjfk_app_final"));
+test("suggest: taxiing at JFK points at JFK's page and Ground/Tower feeds", () => {
+  const s = F.suggest(AIRPORTS, { lat: 40.6413, lon: -73.7781, alt: "ground", gs: 12 });
+  assert.equal(s.phase, "ground");
+  assert.equal(s.airports[0].icao, "KJFK");
+  assert.equal(s.airports[0].url, "https://www.liveatc.net/search/?icao=KJFK");
+  assert.match(s.look.feeds, /Ground/);
+});
+
+test("suggest: cruising points at Center feeds and big airports", () => {
+  const s = F.suggest(AIRPORTS, { lat: 40.9, lon: -74.3, alt: 36000, gs: 470 });
+  assert.equal(s.phase, "enroute");
+  assert.match(s.look.feeds, /Center/);
+  assert.ok(s.airports.length >= 2 && s.airports.length <= 4);
+});
+
+test("suggest: cruising over Kentucky leads with the nearest big airport, not a small one", () => {
+  const s = F.suggest(AIRPORTS, { lat: 38.05, lon: -84.78, alt: 34000, gs: 452 });
+  assert.equal(s.phase, "enroute");
+  assert.equal(s.airports[0].icao, "KSDF");  // Louisville (large), not Lexington (8 NM, medium)
+});
+
+test("suggest: over the ocean there is nothing to open", () => {
+  assert.deepEqual(F.suggest(AIRPORTS, { lat: 0, lon: -30, alt: 37000, gs: 480 }), { phase: null, airports: [] });
 });

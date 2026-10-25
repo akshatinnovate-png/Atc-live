@@ -1,7 +1,1 @@
-[
-  {"id": "kjfk-twr", "airport": "KJFK", "name": "New York JFK — Tower", "lat": 40.6413, "lon": -73.7781, "url": "http://d.liveatc.net/kjfk_twr"},
-  {"id": "klax-twr", "airport": "KLAX", "name": "Los Angeles — Tower", "lat": 33.9416, "lon": -118.4085, "url": "http://d.liveatc.net/klax_twr"},
-  {"id": "ksfo-twr", "airport": "KSFO", "name": "San Francisco — Tower", "lat": 37.6213, "lon": -122.3790, "url": "http://d.liveatc.net/ksfo_twr"},
-  {"id": "kord-twr", "airport": "KORD", "name": "Chicago O'Hare — Tower", "lat": 41.9742, "lon": -87.9073, "url": "http://d.liveatc.net/kord_twr"},
-  {"id": "katl-twr", "airport": "KATL", "name": "Atlanta — Tower", "lat": 33.6407, "lon": -84.4277, "url": "http://d.liveatc.net/katl_twr"}
-]
+[]
